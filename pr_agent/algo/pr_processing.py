@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import traceback
-from typing import Callable, List, Tuple
+from typing import Any, Callable, List, Tuple
 
 from github import RateLimitExceededException
 
 from pr_agent.algo.file_filter import filter_ignored
 from pr_agent.algo.git_patch_processing import (
     extend_patch, handle_patch_deletions,
-    decouple_and_convert_to_hunks_with_lines_numbers)
+    decouple_and_convert_to_hunks_with_lines_numbers, should_skip_patch)
 from pr_agent.algo.language_handler import sort_files_by_main_languages
 from pr_agent.algo.token_handler import TokenHandler
 from pr_agent.algo.types import EDIT_TYPE, FilePatchInfo
@@ -173,7 +173,13 @@ def pr_generate_extended_diff(pr_languages: list,
     patches_extended = []
     patches_extended_tokens = []
     for lang in pr_languages:
-        for file in lang['files']:
+        get_logger().info(f"Generating extended diff for language: {lang['language']}")
+        for i, file in enumerate(lang['files']):
+            get_logger().info(f"Processing file {i+1} of {len(lang['files'])}: {file.filename}")
+            if should_skip_patch(file.filename):
+                get_logger().info(f"Skipping patch for file: {file.filename}")
+                continue
+            
             original_file_content_str = file.base_file
             new_file_content_str = file.head_file
             patch = file.patch
@@ -194,11 +200,19 @@ def pr_generate_extended_diff(pr_languages: list,
                 extended_patch = extended_patch.replace('\n@@ ', '\n\n@@ ') # add extra line before each hunk
                 full_extended_patch = f"\n\n## File: '{file.filename.strip()}'\n\n{extended_patch.strip()}\n"
 
+            if len(full_extended_patch) > get_settings().config.max_model_tokens:
+                get_logger().warning(f"Patch too large, skipping it: '{file.filename}'")
+                continue
+
             # add AI-summary metadata to the patch
             if file.ai_file_summary and get_settings().get("config.enable_ai_metadata", False):
                 full_extended_patch = add_ai_summary_top_patch(file, full_extended_patch)
 
             patch_tokens = token_handler.count_tokens(full_extended_patch)
+            if get_settings().config.max_model_tokens and patch_tokens > get_settings().config.max_model_tokens:
+                get_logger().warning(f"Patch too large, skipping it: '{file.filename}'")
+                continue
+
             file.tokens = patch_tokens
             total_tokens += patch_tokens
             patches_extended_tokens.append(patch_tokens)
