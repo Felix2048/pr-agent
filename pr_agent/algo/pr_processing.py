@@ -27,6 +27,8 @@ OUTPUT_BUFFER_TOKENS_SOFT_THRESHOLD = 1500
 OUTPUT_BUFFER_TOKENS_HARD_THRESHOLD = 1000
 MAX_EXTRA_LINES = 10
 
+# Log configured patch extension skip types for visibility during processing
+get_logger().info(f"Config: patch_extension_skip_types: {get_settings().config.patch_extension_skip_types}")
 
 def cap_and_log_extra_lines(value, direction) -> int:
     if value > MAX_EXTRA_LINES:
